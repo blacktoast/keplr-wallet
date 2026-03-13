@@ -92,6 +92,8 @@ export const MainPage: FunctionComponent<{
     setIsNotReadyRef.current(isNotReady);
   }, [isNotReady]);
 
+  console.log("test!!!");
+
   const availableTotalPriceEmbedOnlyUSD = useMemo(() => {
     let result: PricePretty | undefined;
     for (const bal of hugeQueriesStore.allKnownBalances) {
