@@ -65,66 +65,66 @@ jobs:
           path: apps/extension/build/manifest-v3/
           retention-days: 1
 
-  analyze-workflows:
-    runs-on: ubuntu-24.04
-    timeout-minutes: 10
-    outputs:
-      changes_detected: ${{ steps.analyze.outputs.changes_detected }}
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
+  # analyze-workflows:
+  #   runs-on: ubuntu-24.04
+  #   timeout-minutes: 10
+  #   outputs:
+  #     changes_detected: ${{ steps.analyze.outputs.changes_detected }}
+  #   steps:
+  #     - uses: actions/checkout@v4
+  #       with:
+  #         fetch-depth: 0
 
-      - uses: actions/checkout@v4
-        with:
-          repository: chainapsis/keplr-e2e-testing-agent
-          ref: ${{ inputs.e2e_agent_ref || 'retto/keplr-e2e-agent-1-2' }}
-          path: e2e-agent
-          token: ${{ secrets.E2E_REPO_TOKEN }}
+  #     - uses: actions/checkout@v4
+  #       with:
+  #         repository: chainapsis/keplr-e2e-testing-agent
+  #         ref: ${{ inputs.e2e_agent_ref || 'retto/keplr-e2e-agent-1-2' }}
+  #         path: e2e-agent
+  #         token: ${{ secrets.E2E_REPO_TOKEN }}
 
-      - uses: actions/setup-node@v4
-        with:
-          node-version: '18'
+  #     - uses: actions/setup-node@v4
+  #       with:
+  #         node-version: '18'
 
-      - name: Install e2e-agent dependencies
-        run: cd e2e-agent && npm ci
+  #     - name: Install e2e-agent dependencies
+  #       run: cd e2e-agent && npm ci
 
-      - name: Generate diff
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          if [ "${{ github.event_name }}" = "pull_request" ]; then
-            gh pr diff ${{ github.event.pull_request.number }} > /tmp/pr.diff || echo "" > /tmp/pr.diff
-          else
-            git diff origin/master...HEAD > /tmp/pr.diff || echo "" > /tmp/pr.diff
-          fi
+  #     - name: Generate diff
+  #       env:
+  #         GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+  #       run: |
+  #         if [ "${{ github.event_name }}" = "pull_request" ]; then
+  #           gh pr diff ${{ github.event.pull_request.number }} > /tmp/pr.diff || echo "" > /tmp/pr.diff
+  #         else
+  #           git diff origin/master...HEAD > /tmp/pr.diff || echo "" > /tmp/pr.diff
+  #         fi
 
-      - name: Analyze PR diff
-        id: analyze
-        env:
-          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
-        run: |
-          node e2e-agent/scripts/ci/analyze-pr-diff.mjs \
-            --diff /tmp/pr.diff \
-            --workflows-dir e2e-agent/workflows/ \
-            --output /tmp/analysis-result.json
+  #     - name: Analyze PR diff
+  #       id: analyze
+  #       env:
+  #         ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+  #       run: |
+  #         node e2e-agent/scripts/ci/analyze-pr-diff.mjs \
+  #           --diff /tmp/pr.diff \
+  #           --workflows-dir e2e-agent/workflows/ \
+  #           --output /tmp/analysis-result.json
 
-          CHANGES=$(node -e "const r=JSON.parse(require('fs').readFileSync('/tmp/analysis-result.json','utf8')); console.log(r.changes_detected)")
-          echo "changes_detected=$CHANGES" >> $GITHUB_OUTPUT
+  #         CHANGES=$(node -e "const r=JSON.parse(require('fs').readFileSync('/tmp/analysis-result.json','utf8')); console.log(r.changes_detected)")
+  #         echo "changes_detected=$CHANGES" >> $GITHUB_OUTPUT
 
-      - uses: actions/upload-artifact@v4
-        with:
-          name: workflow-analysis
-          path: |
-            /tmp/analysis-result.json
-            /tmp/modified-workflows/
-          retention-days: 1
-          if-no-files-found: warn
+  #     - uses: actions/upload-artifact@v4
+  #       with:
+  #         name: workflow-analysis
+  #         path: |
+  #           /tmp/analysis-result.json
+  #           /tmp/modified-workflows/
+  #         retention-days: 1
+  #         if-no-files-found: warn
 
   run-e2e:
     runs-on: ubuntu-24.04
     timeout-minutes: 30
-    needs: [build-extension, analyze-workflows]
+    needs: [build-extension]
     steps:
       - uses: actions/checkout@v4
         with:
