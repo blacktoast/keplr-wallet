@@ -189,7 +189,7 @@ jobs:
   report-results:
     runs-on: ubuntu-24.04
     timeout-minutes: 5
-    needs: [run-e2e, analyze-workflows]
+    needs: [run-e2e]
     if: always()
     steps:
       - uses: actions/checkout@v4
