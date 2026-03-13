@@ -1,0 +1,231 @@
+name: E2E Tests
+
+on:
+  workflow_dispatch:
+    inputs:
+      scenario:
+        description: 'Specific scenario to run (empty = all)'
+        required: false
+        default: ''
+      e2e_agent_ref:
+        description: 'e2e-testing-agent branch/tag'
+        required: false
+        default: 'main'
+
+concurrency:
+  group: e2e-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build-extension:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '18'
+
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libusb-1.0-0-dev
+
+      - name: Install protoc
+        run: |
+          PROTOC_VERSION=21.3
+          curl -LO "https://github.com/protocolbuffers/protobuf/releases/download/v${PROTOC_VERSION}/protoc-${PROTOC_VERSION}-linux-x86_64.zip"
+          unzip "protoc-${PROTOC_VERSION}-linux-x86_64.zip" -d "$HOME/protoc"
+          echo "$HOME/protoc/bin" >> $GITHUB_PATH
+
+      - name: Cache node_modules
+        uses: actions/cache@v4
+        with:
+          path: |
+            node_modules
+            packages/*/node_modules
+            apps/*/node_modules
+            .yarn/cache
+          key: yarn-${{ runner.os }}-${{ hashFiles('yarn.lock') }}
+          restore-keys: yarn-${{ runner.os }}-
+
+      - run: npm install --global yarn
+
+      - run: yarn install --immutable
+
+      - name: Build extension (scoped)
+        run: yarn lerna run build --scope=@keplr-wallet/extension --include-dependencies
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: keplr-extension-build
+          path: apps/extension/build/manifest-v3/
+          retention-days: 1
+
+  analyze-workflows:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    outputs:
+      changes_detected: ${{ steps.analyze.outputs.changes_detected }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/checkout@v4
+        with:
+          repository: chainapsis/keplr-e2e-testing-agent
+          ref: ${{ inputs.e2e_agent_ref || 'main' }}
+          path: e2e-agent
+          token: ${{ secrets.E2E_REPO_TOKEN }}
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '18'
+
+      - name: Install e2e-agent dependencies
+        run: cd e2e-agent && npm ci
+
+      - name: Generate diff
+        run: git diff origin/master...HEAD > /tmp/pr.diff || echo "No diff available" > /tmp/pr.diff
+
+      - name: Analyze PR diff
+        id: analyze
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+        run: |
+          node e2e-agent/scripts/ci/analyze-pr-diff.mjs \
+            --diff /tmp/pr.diff \
+            --workflows-dir e2e-agent/workflows/ \
+            --output /tmp/analysis-result.json
+
+          CHANGES=$(node -e "const r=JSON.parse(require('fs').readFileSync('/tmp/analysis-result.json','utf8')); console.log(r.changes_detected)")
+          echo "changes_detected=$CHANGES" >> $GITHUB_OUTPUT
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: workflow-analysis
+          path: |
+            /tmp/analysis-result.json
+            /tmp/modified-workflows/
+          retention-days: 1
+          if-no-files-found: warn
+
+  run-e2e:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    needs: [build-extension, analyze-workflows]
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          repository: chainapsis/keplr-e2e-testing-agent
+          ref: ${{ inputs.e2e_agent_ref || 'main' }}
+          token: ${{ secrets.E2E_REPO_TOKEN }}
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '18'
+
+      - run: npm ci
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: keplr-extension-build
+          path: build/manifest-v3
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: workflow-analysis
+          path: /tmp/analysis
+        continue-on-error: true
+
+      - name: Apply modified workflows
+        if: needs.analyze-workflows.outputs.changes_detected == 'true'
+        run: |
+          if [ -d "/tmp/analysis/modified-workflows" ]; then
+            cp /tmp/analysis/modified-workflows/*.md workflows/ 2>/dev/null || true
+            echo "Applied modified workflows"
+          fi
+
+      - name: Install Playwright
+        run: npx playwright install chromium --with-deps
+
+      - name: Run E2E tests
+        env:
+          KEPLR_MNEMONIC: ${{ secrets.E2E_KEPLR_MNEMONIC }}
+          KEPLR_PASSWORD: ${{ secrets.E2E_KEPLR_PASSWORD }}
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          KEPLR_EXTENSION_PATH: ./build/manifest-v3
+          NETWORK: testnet
+        run: |
+          SCENARIO_FLAG=""
+          if [ -n "${{ inputs.scenario }}" ]; then
+            SCENARIO_FLAG="--scenario ${{ inputs.scenario }}"
+          fi
+          xvfb-run --auto-servernum --server-args="-screen 0 1280x720x24" \
+            npm start -- --fresh-profile --ci --json-output /tmp/e2e-results.json \
+            $SCENARIO_FLAG --verbose 2>&1 | tee /tmp/e2e-output.log || true
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: e2e-results
+          path: |
+            /tmp/e2e-results.json
+            /tmp/e2e-output.log
+            screenshots/
+          retention-days: 7
+
+  report-results:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    needs: [run-e2e, analyze-workflows]
+    if: always()
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          repository: chainapsis/keplr-e2e-testing-agent
+          ref: ${{ inputs.e2e_agent_ref || 'main' }}
+          path: e2e-agent
+          token: ${{ secrets.E2E_REPO_TOKEN }}
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '18'
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: e2e-results
+          path: /tmp/results
+        continue-on-error: true
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: workflow-analysis
+          path: /tmp/analysis
+        continue-on-error: true
+
+      - name: Generate PR comment
+        run: |
+          node e2e-agent/scripts/ci/report-results.mjs \
+            --results /tmp/results/e2e-results.json \
+            --analysis /tmp/analysis/analysis-result.json \
+            --output /tmp/pr-comment.md 2>/dev/null || echo "## E2E Tests\n\nResults not available." > /tmp/pr-comment.md
+
+      - name: Post results as workflow summary
+        run: cat /tmp/pr-comment.md >> $GITHUB_STEP_SUMMARY
+
+      - name: Create workflow update PR
+        if: needs.analyze-workflows.outputs.changes_detected == 'true' && needs.run-e2e.result == 'success'
+        env:
+          GH_TOKEN: ${{ secrets.E2E_REPO_TOKEN }}
+        run: |
+          if [ -d "/tmp/analysis/modified-workflows" ] && [ "$(ls /tmp/analysis/modified-workflows/*.md 2>/dev/null | wc -l)" -gt 0 ]; then
+            node e2e-agent/scripts/ci/create-workflow-pr.mjs \
+              --analysis /tmp/analysis/analysis-result.json \
+              --modified-dir /tmp/analysis/modified-workflows/ \
+              --source-pr "${{ github.run_number }}" \
+              --source-repo "${{ github.repository }}" \
+              --target-repo chainapsis/keplr-e2e-testing-agent || true
+          fi
