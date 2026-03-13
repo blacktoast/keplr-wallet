@@ -80,7 +80,7 @@ jobs:
           repository: chainapsis/keplr-e2e-testing-agent
           ref: ${{ inputs.e2e_agent_ref || 'main' }}
           path: e2e-agent
-          token: ${{ secrets.GITHUB_TOKEN }}
+          token: ${{ secrets.E2E_REPO_TOKEN }}
 
       - uses: actions/setup-node@v4
         with:
@@ -130,7 +130,7 @@ jobs:
         with:
           repository: chainapsis/keplr-e2e-testing-agent
           ref: ${{ inputs.e2e_agent_ref || 'main' }}
-          token: ${{ secrets.GITHUB_TOKEN }}
+          token: ${{ secrets.E2E_REPO_TOKEN }}
 
       - uses: actions/setup-node@v4
         with:
@@ -197,7 +197,7 @@ jobs:
           repository: chainapsis/keplr-e2e-testing-agent
           ref: ${{ inputs.e2e_agent_ref || 'main' }}
           path: e2e-agent
-          token: ${{ secrets.GITHUB_TOKEN }}
+          token: ${{ secrets.E2E_REPO_TOKEN }}
 
       - uses: actions/setup-node@v4
         with:
