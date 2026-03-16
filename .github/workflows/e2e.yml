@@ -65,6 +65,9 @@ jobs:
           path: apps/extension/build/manifest-v3/
           retention-days: 1
 
+  # NOTE: analyze-workflows is disabled until Claude API (ANTHROPIC_API_KEY) is configured.
+  # Uncomment this job and restore dependencies in run-e2e/report-results when ready.
+  #
   # analyze-workflows:
   #   runs-on: ubuntu-24.04
   #   timeout-minutes: 10
@@ -74,21 +77,21 @@ jobs:
   #     - uses: actions/checkout@v4
   #       with:
   #         fetch-depth: 0
-
+  #
   #     - uses: actions/checkout@v4
   #       with:
   #         repository: chainapsis/keplr-e2e-testing-agent
   #         ref: ${{ inputs.e2e_agent_ref || 'retto/keplr-e2e-agent-1-2' }}
   #         path: e2e-agent
   #         token: ${{ secrets.E2E_REPO_TOKEN }}
-
+  #
   #     - uses: actions/setup-node@v4
   #       with:
   #         node-version: '18'
-
+  #
   #     - name: Install e2e-agent dependencies
   #       run: cd e2e-agent && npm ci
-
+  #
   #     - name: Generate diff
   #       env:
   #         GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -98,7 +101,7 @@ jobs:
   #         else
   #           git diff origin/master...HEAD > /tmp/pr.diff || echo "" > /tmp/pr.diff
   #         fi
-
+  #
   #     - name: Analyze PR diff
   #       id: analyze
   #       env:
@@ -108,10 +111,10 @@ jobs:
   #           --diff /tmp/pr.diff \
   #           --workflows-dir e2e-agent/workflows/ \
   #           --output /tmp/analysis-result.json
-
+  #
   #         CHANGES=$(node -e "const r=JSON.parse(require('fs').readFileSync('/tmp/analysis-result.json','utf8')); console.log(r.changes_detected)")
   #         echo "changes_detected=$CHANGES" >> $GITHUB_OUTPUT
-
+  #
   #     - uses: actions/upload-artifact@v4
   #       with:
   #         name: workflow-analysis
@@ -143,20 +146,6 @@ jobs:
           name: keplr-extension-build
           path: build/manifest-v3
 
-      - uses: actions/download-artifact@v4
-        with:
-          name: workflow-analysis
-          path: /tmp/analysis
-        continue-on-error: true
-
-      - name: Apply modified workflows
-        if: needs.analyze-workflows.outputs.changes_detected == 'true'
-        run: |
-          if [ -d "/tmp/analysis/modified-workflows" ]; then
-            cp /tmp/analysis/modified-workflows/*.md workflows/ 2>/dev/null || true
-            echo "Applied modified workflows"
-          fi
-
       - name: Install Playwright
         run: npx playwright install chromium --with-deps
 
@@ -174,7 +163,7 @@ jobs:
           fi
           xvfb-run --auto-servernum --server-args="-screen 0 1280x720x24" \
             npm start -- --fresh-profile --ci --json-output /tmp/e2e-results.json \
-            $SCENARIO_FLAG --verbose 2>&1 | tee /tmp/e2e-output.log || true
+            $SCENARIO_FLAG --verbose 2>&1 | tee /tmp/e2e-output.log
 
       - uses: actions/upload-artifact@v4
         if: always()
@@ -209,32 +198,11 @@ jobs:
           path: /tmp/results
         continue-on-error: true
 
-      - uses: actions/download-artifact@v4
-        with:
-          name: workflow-analysis
-          path: /tmp/analysis
-        continue-on-error: true
-
       - name: Generate PR comment
         run: |
           node e2e-agent/scripts/ci/report-results.mjs \
             --results /tmp/results/e2e-results.json \
-            --analysis /tmp/analysis/analysis-result.json \
             --output /tmp/pr-comment.md 2>/dev/null || echo "## E2E Tests\n\nResults not available." > /tmp/pr-comment.md
 
       - name: Post results as workflow summary
         run: cat /tmp/pr-comment.md >> $GITHUB_STEP_SUMMARY
-
-      - name: Create workflow update PR
-        if: needs.analyze-workflows.outputs.changes_detected == 'true' && needs.run-e2e.result == 'success'
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          if [ -d "/tmp/analysis/modified-workflows" ] && [ "$(ls /tmp/analysis/modified-workflows/*.md 2>/dev/null | wc -l)" -gt 0 ]; then
-            node e2e-agent/scripts/ci/create-workflow-pr.mjs \
-              --analysis /tmp/analysis/analysis-result.json \
-              --modified-dir /tmp/analysis/modified-workflows/ \
-              --source-pr "${{ github.run_number }}" \
-              --source-repo "${{ github.repository }}" \
-              --target-repo chainapsis/keplr-e2e-testing-agent || true
-          fi
