@@ -10,7 +10,7 @@ on:
       e2e_agent_ref:
         description: 'e2e-testing-agent branch/tag'
         required: false
-        default: 'jinwoo/keplr-e2e-agent'
+        default: 'retto/keplr-e2e-agent-1-2'
   pull_request:
     branches: [master]
 
@@ -81,7 +81,7 @@ jobs:
   #     - uses: actions/checkout@v4
   #       with:
   #         repository: chainapsis/keplr-e2e-testing-agent
-  #         ref: ${{ inputs.e2e_agent_ref || 'jinwoo/keplr-e2e-agent' }}
+  #         ref: ${{ inputs.e2e_agent_ref || 'retto/keplr-e2e-agent-1-2' }}
   #         path: e2e-agent
   #         token: ${{ secrets.E2E_REPO_TOKEN }}
   #
@@ -132,7 +132,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           repository: chainapsis/keplr-e2e-testing-agent
-          ref: ${{ inputs.e2e_agent_ref || 'jinwoo/keplr-e2e-agent' }}
+          ref: ${{ inputs.e2e_agent_ref || 'retto/keplr-e2e-agent-1-2' }}
           token: ${{ secrets.E2E_REPO_TOKEN }}
 
       - uses: actions/setup-node@v4
@@ -184,7 +184,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           repository: chainapsis/keplr-e2e-testing-agent
-          ref: ${{ inputs.e2e_agent_ref || 'jinwoo/keplr-e2e-agent' }}
+          ref: ${{ inputs.e2e_agent_ref || 'retto/keplr-e2e-agent-1-2' }}
           path: e2e-agent
           token: ${{ secrets.E2E_REPO_TOKEN }}
 
